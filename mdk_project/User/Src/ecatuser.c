@@ -16,6 +16,8 @@
 
 PDO_Output *outputs1;
 PDO_Input *inputs1;
+PDO_Output *outputs2;
+PDO_Input *inputs2;
 
 
 char IOmap[200];
@@ -25,11 +27,14 @@ uint8 flag_time = 0;
 int oloop, iloop;
 uint32_t pdoTimeFlag = 0;
 //motor control 
-uint16 cur_status;
+uint16 cur_status1;
+uint16 cur_status2;
 uint8_t startup_step=0;
-int32 cur_pos = 0;
+int32 cur_pos1 = 0;
+int32 cur_pos2 = 0;
 uint16 csp_pos_delay;
-int cmdpos_raw;
+int cmdpos_raw1;
+int cmdpos_raw2;
 
 #define DEBUG 1
 
@@ -125,6 +130,7 @@ void ecat_init(void)
             
             ec_configdc();//DCʱ������
 			ec_dcsync0(1, TRUE, SYNC0TIME, 250000); // SYNC0 on slave 1
+			ec_dcsync0(2, TRUE, SYNC0TIME, 250000); // SYNC0 on slave 2
             ec_config_map(&IOmap);
             
 //						ec_dcsync0(2, TRUE, SYNC0TIME, 0); // SYNC0 on slave 2
@@ -190,7 +196,8 @@ void ecat_init(void)
                 
                 outputs1 = (PDO_Output *)ec_slave[1].outputs;
                 inputs1  = (PDO_Input *)ec_slave[1].inputs;
-                
+                outputs2 = (PDO_Output *)ec_slave[2].outputs;
+                inputs2  = (PDO_Input *)ec_slave[2].inputs;                
 
                 printf("all slaves reached operational state.\r\n");
             }
@@ -228,34 +235,40 @@ void ecat_loop(void)
     {		
 			ec_send_processdata();
 			ec_receive_processdata(EC_TIMEOUTRET);
-			cur_status = inputs1->StatusWord;//0x6041
-			cur_pos = inputs1->CurrentPosition;
+			cur_status1 = inputs1->StatusWord;//0x6041
+			cur_pos1 = inputs1->CurrentPosition;
+			cur_status2 = inputs2->StatusWord;//0x6041
+			cur_pos2 = inputs2->CurrentPosition;			
 			switch(startup_step)
 			{
 				case 1:
 				  outputs1->ControlWord = 0x06;//0x6040
-				  if((cur_status==0x1631)||(cur_status==0x1231)||(cur_status==0x0238))
+				  outputs2->ControlWord = 0x06;//0x6040
+				  if(((cur_status1==0x1631)||(cur_status1==0x1231))&&((cur_status2==0x1631)||(cur_status2==0x1231)))
 						 startup_step=2;
-				  printf("0x06,cur=%x\r\n",cur_status);
+				  printf("0x06,cur=%x\r\n",cur_status1);
 				break;
 
 			  case 2:
 					outputs1->ControlWord = 0x07;
-					if((cur_status==0x1633)||(cur_status==0x1233))
+					outputs2->ControlWord = 0x07;
+					if(((cur_status1==0x1633)||(cur_status1==0x1233)) && ((cur_status2==0x1633)||(cur_status2==0x1233)))
 						 startup_step=3;
-					printf("0x07,cur=%x\r\n",cur_status);
+					printf("0x07,cur=%x\r\n",cur_status1);
 					break;
 
 				case 3:
 					outputs1->ControlWord = 0x0f;
-				 	if((cur_status==0x1637)||(cur_status==0x1633)||(cur_status==0x1237))
+					outputs2->ControlWord = 0x0f;
+				 	if(((cur_status1==0x1637)||(cur_status1==0x1633)||(cur_status1==0x1237))&&((cur_status2==0x1637)||(cur_status2==0x1633)||(cur_status2==0x1237)))
 						 startup_step=4;
-                   printf("0x08,cur=%x\r\n",cur_status);
+                   printf("0x08,cur=%x\r\n",cur_status1);
 					break;
 					
 
 				case 4:
            			outputs1->ControlWord = 0x1f;
+					outputs2->ControlWord = 0x1f;
 				   //outputs1->TargetPos = cur_pos;//0x607A	
 							
 						csp_pos_delay++;
@@ -264,18 +277,21 @@ void ecat_loop(void)
 
                   if(csp_pos_delay <= 1000)
                   {
-                     cur_pos += 500;
+                     cur_pos1 += 500;
+					 cur_pos2 += 500;
                   }
                   else if(csp_pos_delay <= 2000)
                   {
-                     cur_pos -= 500;
+                     cur_pos1 -= 500;
+					 cur_pos2 -= 500;
                   }
 				  else
 				  {
 					csp_pos_delay = 0;
 				  }
 
-				  cmdpos_raw = cur_pos;
+				  cmdpos_raw1 = cur_pos1;
+				  cmdpos_raw2 = cur_pos2;
                 
 
                
@@ -285,11 +301,14 @@ void ecat_loop(void)
 				default :
 					startup_step=1;
 				  outputs1->ControlWord = 0x03;//0x6040
+				  outputs2->ControlWord = 0x03;//0x6040
 				break;
 			}
 		}
-	 outputs1->TargetPos = cmdpos_raw;
+	 outputs1->TargetPos = cmdpos_raw1;
 	 outputs1->TargetMode = 0x8;
+	outputs2->TargetPos = cmdpos_raw2;
+	 outputs2->TargetMode = 0x8;
 		if(i>=500) i = 0;
 }
 
